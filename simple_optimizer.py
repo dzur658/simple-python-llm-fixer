@@ -2,10 +2,11 @@ import ollama
 import subprocess
 import sys
 import os
+# import keyboard
 
 # --- Configuration ---
-TARGET_SCRIPT = "target_script.py"
-MODEL_NAME = "llama3" 
+TARGET_SCRIPT = "[REPLACE ME]"
+MODEL_NAME = "[REPLACE ME]"  # Change to your desired model
 MAX_ITERATIONS = 1000
 
 # Add system prompt
@@ -14,11 +15,15 @@ SYS_PROMPT = """You are an extremely knowledgeable Senior Developer who speciali
                 **DO NOT** under any circumstances completely rewrite the script or change its fundamental purpose.
             """
 
+# Uncomment for GPT-OSS models (see harmony prompt format)
+# SYS_PROMPT = "Reasoning: high" + "\n" + SYS_PROMPT
+
 # Prompt, add any specific details about your current script to this generic prompt.
 PROMPT = """
 Here is a Python script that has a bug. Your task is to fix it.
-Only output the raw, complete Python code. Do not add any explanation,
-markdown backticks, or other text.
+Only output the raw, complete Python code.
+
+**DO NOT** add any explanation, simply output the script in full with the correct fixes.
 --- SCRIPT ---
 """
 # --- End Configuration ---
@@ -28,6 +33,12 @@ def clean_llm_output(raw_text):
     Cleans the LLM's output by removing markdown backticks
     and other common conversational padding.
     """
+
+    # detect <think></think> tags and remove them
+    think_index = raw_text.find("</think>")
+    if think_index != -1:
+        raw_text = raw_text[think_index + len("</think>"):]
+
     # find ```python index
     start_index = raw_text.find("```python")
 
@@ -62,7 +73,7 @@ def run_script(temp_script):
         )
         
         # Traceback heading indicates an error
-        if "Traceback (most recent call last)" in result.stderr:
+        if result.returncode != 0:
             return (False, result.stderr)
         
         # Success if no traceback heading is detected
@@ -87,7 +98,9 @@ if __name__ == "__main__":
         print(f"Error: Target script '{TARGET_SCRIPT}' not found.")
         sys.exit(1)
 
+    # Initialize last error and llm response variables
     last_error = ""
+    llm_response_text = ""
 
     for i in range(MAX_ITERATIONS):
         print(f"\n--- Iteration {i+1}/{MAX_ITERATIONS} ---")
@@ -111,17 +124,27 @@ if __name__ == "__main__":
             )
 
         # 3. Call the Ollama API
-        print("📞 Calling Ollama...")
         try:
-            response = ollama.chat(
+            stream = ollama.chat(
                 model=MODEL_NAME,
                 messages=[
-                    {'role': 'system', 'content': SYS_PROMPT},
-                    {'role': 'user', 'content': prompt}
-                ]
+                    {
+                        'role': 'system', 'content': SYS_PROMPT,
+                        'role': 'user', 'content': prompt
+                    }
+                ],
+                stream=True,
             )
-            
-            llm_response_text = response.message.content
+
+            print(f"✨ {MODEL_NAME} is working it's magic... ✨")
+            print("-"*80)
+            for chunk in stream:
+                print(chunk.message.content, end='', flush=True)
+                llm_response_text += str(chunk.message.content)
+
+                # if keyboard.is_pressed('h'):
+            print("\n" + "-"*80)
+
             current_code = clean_llm_output(llm_response_text)
 
             # 4. Overwrite the target script with the new code
